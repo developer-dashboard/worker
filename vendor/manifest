@@ -136,6 +136,12 @@
 			"branch": "master"
 		},
 		{
+			"importpath": "github.com/tsenart/tb",
+			"repository": "https://github.com/tsenart/tb",
+			"revision": "19f4c3d79d2bd67d0911b2e310b999eeea4454c1",
+			"branch": "master"
+		},
+		{
 			"importpath": "golang.org/x/crypto/curve25519",
 			"repository": "https://go.googlesource.com/crypto",
 			"revision": "aedad9a179ec1ea11b7064c57cbc6dc30d7724ec",

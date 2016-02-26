@@ -2,9 +2,13 @@ package ratelimit
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/tsenart/tb"
 )
 
 func TestRateLimit(t *testing.T) {
@@ -40,5 +44,84 @@ func TestRateLimit(t *testing.T) {
 	}
 	if ok {
 		t.Fatal("expected to get rate limited, but was not limited")
+	}
+}
+
+type TimeSlice []time.Time
+
+func (ts TimeSlice) Len() int {
+	return len(ts)
+}
+
+func (ts TimeSlice) Less(i, j int) bool {
+	return ts[i].Before(ts[j])
+}
+
+func (ts TimeSlice) Swap(i, j int) {
+	ts[i], ts[j] = ts[j], ts[i]
+}
+
+func TestRateLimitLoadTest(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping rate limit load test in short mode")
+	}
+	if os.Getenv("REDIS_URL") == "" {
+		t.Skip("skipping redis test since there is no REDIS_URL")
+	}
+
+	concurrencyCount := 50
+	var rateLimiters []RateLimiter
+	maxJitter := 10 * time.Millisecond
+	for i := 0; i < concurrencyCount; i++ {
+		rateLimiters = append(rateLimiters, NewRateLimiter(os.Getenv("REDIS_URL"), fmt.Sprintf("worker-test-rl-%d", os.Getpid())))
+		rateLimiters[i].(*redisRateLimiter).jitter = time.Duration(rand.Int63n(2*maxJitter.Nanoseconds()) - maxJitter.Nanoseconds())
+	}
+
+	th := tb.NewThrottler(50 * time.Millisecond)
+	defer th.Close()
+
+	var rateLimitedTimesMutex sync.Mutex
+	var rateLimitedTimes []time.Time
+	addTime := func(t time.Time) {
+		if th.Halt("load-test", 1, 20) {
+			rateLimitedTimesMutex.Lock()
+			rateLimitedTimes = append(rateLimitedTimes, t)
+			rateLimitedTimesMutex.Unlock()
+			fmt.Print(".")
+		}
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < concurrencyCount; i++ {
+		wg.Add(1)
+		go func(rateLimiter RateLimiter) {
+			var wg2 sync.WaitGroup
+			for j := 0; j < 150; j++ {
+				wg2.Add(1)
+				go func() {
+					for {
+						ok, err := rateLimiter.RateLimit("load-test", 10, time.Second)
+						if err != nil {
+							t.Errorf("error in goroutine %d: %v", i, err)
+							break
+						}
+						if ok {
+							addTime(time.Now())
+							break
+						}
+					}
+					wg2.Done()
+				}()
+			}
+
+			wg2.Wait()
+			wg.Done()
+		}(rateLimiters[i])
+	}
+
+	wg.Wait()
+
+	if len(rateLimitedTimes) != 0 {
+		t.Errorf("expected 0 rate limits, got %d", len(rateLimitedTimes))
 	}
 }

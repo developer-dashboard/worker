@@ -20,6 +20,8 @@ type RateLimiter interface {
 type redisRateLimiter struct {
 	pool   *redis.Pool
 	prefix string
+
+	jitter time.Duration
 }
 
 type nullRateLimiter struct{}
@@ -51,7 +53,7 @@ func (rl *redisRateLimiter) RateLimit(name string, maxCalls uint64, per time.Dur
 	conn := rl.pool.Get()
 	defer conn.Close()
 
-	now := time.Now()
+	now := time.Now().Add(rl.jitter)
 	timestamp := now.Unix() - (now.Unix() % int64(per.Seconds()))
 
 	key := fmt.Sprintf("%s:%s:%d", rl.prefix, name, timestamp)
