@@ -1,6 +1,6 @@
 language: go
 
-go: 1.8rc1
+go: 1.8rc3
 
 dist: trusty
 
